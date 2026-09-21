@@ -1,17 +1,22 @@
 {
-	"geode": "$GEODE_VERSION",
+	"geode": "5.0.0",
 	"gd": {
 		"win": "2.2081",
 		"android": "2.2081",
 		"mac": "2.2081",
 		"ios": "2.2081"
 	},
-	"id": "$MOD_ID",
-	"name": "$MOD_NAME",
-	"version": "$MOD_VERSION",
-	"developer": "$MOD_DEVELOPER",
-	"description": "$MOD_DESCRIPTION",
-	"dependencies": {
-		"geode.node-ids": ">=v1.23.3"
+	"id": "novalattasya.hyperbolus-macros",
+	"name": "Hyperbolus Macro Downloader",
+	"version": "v1.0.0",
+	"developer": "novalattasya",
+	"description": "Download macro dari Hyperbolus langsung dari menu level.",
+	"settings": {
+		"save-folder": {
+			"type": "string",
+			"name": "Folder simpan macro",
+			"description": "Path folder tujuan macro. Kosongkan untuk memakai folder bawaan mod ini (folder save mod / macros).",
+			"default": ""
+		}
 	}
 }
