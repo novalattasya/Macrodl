@@ -6,17 +6,52 @@
 		"mac": "2.2081",
 		"ios": "2.2081"
 	},
-	"id": "novalattasya.hyperbolus-macros",
-	"name": "Hyperbolus Macro Downloader",
+	"id": "novalattasya.macrodl",
+	"name": "Macrodl",
 	"version": "v1.0.0",
 	"developer": "novalattasya",
-	"description": "Download macro dari Hyperbolus langsung dari menu level.",
+	"description": "Download Geometry Dash macros from Hyperbolus straight from the level page.",
 	"settings": {
+		"downloads-title": {
+			"type": "title",
+			"name": "Downloads"
+		},
+		"format-filter": {
+			"type": "string",
+			"name": "Format filter",
+			"description": "Only macros in these formats are offered for download.",
+			"default": "GDR + GDR2",
+			"one-of": ["GDR + GDR2", "GDR", "GDR2", "All formats"]
+		},
+		"always-confirm": {
+			"type": "bool",
+			"name": "Always choose manually",
+			"description": "Show the macro list even when only one macro matches the format filter.",
+			"default": false
+		},
+		"files-title": {
+			"type": "title",
+			"name": "Files"
+		},
 		"save-folder": {
 			"type": "string",
-			"name": "Folder simpan macro",
-			"description": "Path folder tujuan macro. Kosongkan untuk memakai folder bawaan mod ini (folder save mod / macros).",
+			"name": "Save folder",
+			"description": "Full path of the folder where macros are saved. Leave empty to use the default folder inside the mod's save directory.",
 			"default": ""
+		},
+		"file-naming": {
+			"type": "string",
+			"name": "File naming",
+			"description": "How downloaded files are named.",
+			"default": "Original name",
+			"one-of": ["Original name", "Level name - original", "Level ID - original"]
+		},
+		"existing-file": {
+			"type": "string",
+			"name": "If the file already exists",
+			"description": "What to do when a file with the same name is already in the save folder.",
+			"default": "Rename",
+			"one-of": ["Rename", "Overwrite", "Skip"]
 		}
 	}
 }
