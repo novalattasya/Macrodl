@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="icon.png" alt="Macrodl icon" width="168" height="168">
+  <img src="logo.png" alt="Macrodl icon" width="168" height="168">
 </p>
 
 <h1 align="center">Macrodl</h1>
