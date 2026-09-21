@@ -1,6 +1,6 @@
 # Macrodl
 
-Download Geometry Dash macros from [Hyperbolus](https://hyperbolus.net) without leaving the game.
+Download Geometry Dash macros from [Hyperbolus](https://hyperbolus.net) without leaving the game!!!
 
 ## How to use
 
@@ -16,7 +16,7 @@ The green folder button opens your library of downloaded macros, where you can d
 
 - **Format filter**: GDR + GDR2, GDR only, GDR2 only, or all formats.
 - **Always choose manually**: show the list even when only one macro matches.
-- **Save folder**: full path of the folder where macros are stored. Leave empty for the default folder.
+- **Save folder**: pick the folder where to save downloaded macros. Leave it empty for the default folder.
 - **File naming**: keep the original name, or prefix it with the level name or level ID.
 - **If the file already exists**: rename, overwrite or skip.
 
