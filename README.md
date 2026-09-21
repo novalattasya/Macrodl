@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="Geode" src="https://img.shields.io/badge/Geode-5.0.0%2B-8A63D2?style=for-the-badge">
+  <img alt="Geode" src="https://img.shields.io/badge/Geode-5.10.1%2B-8A63D2?style=for-the-badge">
   <img alt="Geometry Dash" src="https://img.shields.io/badge/Geometry%20Dash-2.2081-F5A623?style=for-the-badge">
   <img alt="Tested on Android" src="https://img.shields.io/badge/Tested%20on-Android-3DDC84?style=for-the-badge">
   <img alt="Formats" src="https://img.shields.io/badge/Formats-GDR%20%7C%20GDR2-1E88E5?style=for-the-badge">
