@@ -107,12 +107,6 @@ std::string sanitizeName(std::string s) {
     return s;
 }
 
-std::string trimSpaces(std::string s) {
-    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) s.pop_back();
-    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front()))) s.erase(s.begin());
-    return s;
-}
-
 std::string formatBytes(int64_t bytes) {
     if (bytes < 1024) return fmt::format("{} B", bytes);
     if (bytes < 1024 * 1024) return fmt::format("{:.1f} KB", static_cast<double>(bytes) / 1024.0);
@@ -174,8 +168,8 @@ web::WebRequest baseRequest() {
 Config readConfig() {
     auto mod = Mod::get();
     Config cfg;
-    auto custom = trimSpaces(mod->getSettingValue<std::string>("save-folder"));
-    cfg.dir = custom.empty() ? (mod->getSaveDir() / "macros") : fs::path(custom);
+    auto custom = mod->getSettingValue<std::filesystem::path>("save-folder");
+    cfg.dir = custom.empty() ? (mod->getSaveDir() / "macros") : custom;
     cfg.filter = mod->getSettingValue<std::string>("format-filter");
     cfg.naming = mod->getSettingValue<std::string>("file-naming");
     cfg.existing = mod->getSettingValue<std::string>("existing-file");
