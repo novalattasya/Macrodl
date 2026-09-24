@@ -269,7 +269,11 @@ std::string joinParts(std::vector<std::string> const& parts) {
 
 web::WebRequest baseRequest() {
     web::WebRequest req;
-    req.userAgent("Macrodl/1.0");
+    req.userAgent(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+    );
+    req.header("Accept-Language", "en-US,en;q=0.9");
     return req;
 }
 
@@ -451,6 +455,7 @@ arc::Future<FetchResult> fetchReplays(int levelId) {
             req.header("X-Requested-With", "XMLHttpRequest");
             req.header("X-Inertia", "true");
             req.header("X-Inertia-Version", g_inertiaVersion);
+            req.header("Referer", pageUrl);
             auto res = co_await req.get(url);
 
             if (res.code() == 409) {
