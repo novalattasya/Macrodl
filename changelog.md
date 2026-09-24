@@ -1,3 +1,7 @@
+# v1.1.0
+
+- Convert ZBF macros to GDR2 when a level has no GDR or GDR2 macro available.
+
 # v1.0.0
 
 - Download macros from Hyperbolus directly from the level page.

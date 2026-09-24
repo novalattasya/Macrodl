@@ -6,10 +6,12 @@
 #include <Geode/utils/file.hpp>
 #include <Geode/utils/async.hpp>
 #include <matjson.hpp>
+#include <gdr/gdr.hpp>
 
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <cmath>
 #include <cstring>
 #include <ctime>
 #include <filesystem>
@@ -19,6 +21,10 @@
 
 using namespace geode::prelude;
 namespace fs = std::filesystem;
+
+struct MacrodlReplay : gdr::Replay<MacrodlReplay, gdr::Input<>> {
+    MacrodlReplay() : Replay("Macrodl", 1) {}
+};
 
 namespace {
 
@@ -147,6 +153,108 @@ bool matchesFilter(ReplayInfo const& r, std::string const& filter) {
     if (filter == "GDR2") return f == "gdr2";
     if (filter == "GDR + GDR2") return f == "gdr" || f == "gdr2";
     return true;
+}
+
+struct ZbfEvent {
+    uint32_t frame = 0;
+    bool hold = false;
+    bool player2 = false;
+};
+
+struct ZbfData {
+    double fps = 0.0;
+    std::vector<ZbfEvent> events;
+};
+
+Result<ZbfData, std::string> parseZbf(std::vector<uint8_t> const& data) {
+    constexpr size_t HEADER_SIZE = 8;
+    constexpr size_t RECORD_SIZE = 6;
+
+    if (data.size() < HEADER_SIZE) {
+        return Err("This file is too small to be a valid ZBF macro.");
+    }
+
+    float delta = 0.f;
+    float speedhack = 0.f;
+    std::memcpy(&delta, data.data(), sizeof(float));
+    std::memcpy(&speedhack, data.data() + 4, sizeof(float));
+
+    if (delta <= 0.f || speedhack <= 0.f) {
+        return Err("This ZBF macro has an invalid header.");
+    }
+
+    ZbfData result;
+    result.fps = std::round(1.0 / (static_cast<double>(delta) * static_cast<double>(speedhack)));
+
+    size_t remaining = data.size() - HEADER_SIZE;
+    size_t count = remaining / RECORD_SIZE;
+    result.events.reserve(count);
+
+    size_t offset = HEADER_SIZE;
+    for (size_t i = 0; i < count; ++i) {
+        int32_t frame = 0;
+        std::memcpy(&frame, data.data() + offset, sizeof(int32_t));
+        uint8_t holdByte = data[offset + 4];
+        uint8_t playerByte = data[offset + 5];
+
+        ZbfEvent event;
+        event.frame = frame < 0 ? 0 : static_cast<uint32_t>(frame);
+        event.hold = holdByte == 0x31;
+        event.player2 = playerByte == 0x31;
+        result.events.push_back(event);
+
+        offset += RECORD_SIZE;
+    }
+
+    return Ok(std::move(result));
+}
+
+struct ConvertedGdr {
+    std::vector<uint8_t> data;
+    double fps = 0.0;
+};
+
+Result<ConvertedGdr, std::string> convertZbfToGdr2(
+    std::vector<uint8_t> const& zbfBytes, int levelId, std::string const& levelName, int gameVersion
+) {
+    auto parsed = parseZbf(zbfBytes);
+    if (parsed.isErr()) return Err(parsed.unwrapErr());
+    auto zbf = parsed.unwrap();
+
+    if (zbf.events.empty()) {
+        return Err("This ZBF macro has no recorded inputs.");
+    }
+    if (zbf.fps <= 0.0 || !std::isfinite(zbf.fps)) {
+        return Err("This ZBF macro has an invalid framerate.");
+    }
+
+    MacrodlReplay replay;
+    replay.author = "Converted by Macrodl";
+    replay.description = "Converted from a ZBF macro.";
+    replay.framerate = zbf.fps;
+    replay.gameVersion = gameVersion;
+    replay.platformer = false;
+    replay.ldm = false;
+    replay.seed = 0;
+    replay.coins = 0;
+    replay.levelInfo = gdr::Level(levelName, static_cast<uint32_t>(levelId > 0 ? levelId : 0));
+
+    uint32_t lastFrame = 0;
+    replay.inputs.reserve(zbf.events.size());
+    for (auto const& event : zbf.events) {
+        replay.inputs.push_back(gdr::Input<>(event.frame, 1, event.player2, event.hold));
+        lastFrame = std::max(lastFrame, event.frame);
+    }
+    replay.duration = static_cast<float>(static_cast<double>(lastFrame) / zbf.fps);
+    replay.sortInputs();
+
+    auto exported = replay.exportData();
+    if (exported.isErr()) return Err(exported.unwrapErr());
+
+    ConvertedGdr converted;
+    converted.data = exported.unwrap();
+    converted.fps = zbf.fps;
+    return Ok(std::move(converted));
 }
 
 std::string joinParts(std::vector<std::string> const& parts) {
@@ -413,6 +521,25 @@ arc::Future<SaveResult> downloadFile(std::string url, fs::path path) {
     co_return result;
 }
 
+struct RawFetchResult {
+    bool ok = false;
+    std::string error;
+    std::vector<uint8_t> data;
+};
+
+arc::Future<RawFetchResult> fetchRaw(std::string url) {
+    RawFetchResult result;
+    auto req = baseRequest();
+    auto res = co_await req.get(url);
+    if (!res.ok()) {
+        result.error = fmt::format("Download failed (HTTP {}).", res.code());
+        co_return result;
+    }
+    result.ok = true;
+    result.data = res.data();
+    co_return result;
+}
+
 class ListPopup : public Popup {
 public:
     struct Row {
@@ -430,10 +557,11 @@ public:
         bool destructive,
         std::string emptyText,
         ActionCallback onAction,
-        std::vector<FooterButton> footer
+        std::vector<FooterButton> footer,
+        std::string actionLabel = "Get"
     ) {
         auto ret = new ListPopup();
-        if (ret->init(std::move(title), std::move(rows), destructive, std::move(emptyText), std::move(onAction), std::move(footer))) {
+        if (ret->init(std::move(title), std::move(rows), destructive, std::move(emptyText), std::move(onAction), std::move(footer), std::move(actionLabel))) {
             ret->autorelease();
             return ret;
         }
@@ -460,6 +588,7 @@ public:
 protected:
     std::vector<Row> m_rows;
     std::string m_emptyText;
+    std::string m_actionLabel = "Get";
     bool m_destructive = false;
     size_t m_page = 0;
     ActionCallback m_onAction;
@@ -473,7 +602,8 @@ protected:
         bool destructive,
         std::string emptyText,
         ActionCallback onAction,
-        std::vector<FooterButton> footer
+        std::vector<FooterButton> footer,
+        std::string actionLabel
     ) {
         if (!Popup::init(340.f, footer.empty() ? 262.f : 300.f)) return false;
 
@@ -482,6 +612,7 @@ protected:
         m_emptyText = std::move(emptyText);
         m_onAction = std::move(onAction);
         m_footer = std::move(footer);
+        m_actionLabel = std::move(actionLabel);
 
         this->setTitle(title.c_str());
 
@@ -559,7 +690,7 @@ protected:
                 trash->setScale(0.75f);
                 icon = trash;
             } else {
-                auto get = ButtonSprite::create("Get");
+                auto get = ButtonSprite::create(m_actionLabel.c_str());
                 get->setScale(0.7f);
                 icon = get;
             }
@@ -633,6 +764,82 @@ void startDownload(ReplayInfo r, int levelId, std::string levelName, Config cfg)
     });
 }
 
+void startConvertDownload(ReplayInfo r, int levelId, std::string levelName, Config cfg) {
+    ReplayInfo asGdr = r;
+    asGdr.format = "gdr2";
+    auto stem = fs::path(r.filename).stem().string();
+    asGdr.filename = fmt::format("{}.gdr2", stem.empty() ? std::to_string(levelId) : stem);
+
+    auto target = resolveTarget(cfg, asGdr, levelId, levelName);
+    if (!target) {
+        g_busy = false;
+        Notification::create("A file with the same name already exists. Skipped.", NotificationIcon::Warning)->show();
+        return;
+    }
+
+    g_busy = true;
+    Notification::create("Downloading ZBF macro...", NotificationIcon::Loading)->show();
+
+    auto path = *target;
+    async::spawn(fetchRaw(r.url), [r, levelId, levelName, path](RawFetchResult fetchResult) {
+        if (!fetchResult.ok) {
+            g_busy = false;
+            FLAlertLayer::create("Macrodl", fetchResult.error, "OK")->show();
+            return;
+        }
+
+        Notification::create("Converting to GDR2...", NotificationIcon::Loading)->show();
+
+        auto converted = convertZbfToGdr2(fetchResult.data, levelId, levelName, GEODE_COMP_GD_VERSION);
+        if (converted.isErr()) {
+            g_busy = false;
+            FLAlertLayer::create("Macrodl", "Could not convert this macro: " + converted.unwrapErr(), "OK")->show();
+            return;
+        }
+        auto result = converted.unwrap();
+
+        auto written = file::writeBinary(path, result.data);
+        g_busy = false;
+        if (written.isErr()) {
+            FLAlertLayer::create("Macrodl", "Could not write the converted file to " + path.string(), "OK")->show();
+            return;
+        }
+
+        LibraryEntry entry;
+        entry.replayId = r.id;
+        entry.levelId = levelId;
+        entry.fps = static_cast<int>(std::lround(result.fps));
+        entry.bytes = static_cast<int64_t>(result.data.size());
+        entry.time = static_cast<int64_t>(std::time(nullptr));
+        entry.levelName = levelName;
+        entry.author = r.author;
+        entry.format = "gdr2";
+        entry.path = path.string();
+        addLibraryEntry(std::move(entry));
+
+        Notification::create("Converted and saved: " + path.filename().string(), NotificationIcon::Success)->show();
+    });
+}
+
+void beginConvertDownload(ReplayInfo r, int levelId, std::string levelName, Config cfg) {
+    auto existing = findDownloaded(r.id);
+    if (existing == nullptr) {
+        startConvertDownload(std::move(r), levelId, std::move(levelName), std::move(cfg));
+        return;
+    }
+
+    auto name = fs::path(existing->path).filename().string();
+    createQuickPopup(
+        "Already converted",
+        fmt::format("This macro is already in your library as {}. Convert and download it again?", name),
+        "Cancel",
+        "Convert",
+        [r, levelId, levelName, cfg](auto, bool btn2) {
+            if (btn2) startConvertDownload(r, levelId, levelName, cfg);
+        }
+    );
+}
+
 void beginDownload(ReplayInfo r, int levelId, std::string levelName, Config cfg) {
     auto existing = findDownloaded(r.id);
     if (existing == nullptr) {
@@ -681,6 +888,36 @@ void showPicker(std::vector<ReplayInfo> replays, int levelId, std::string levelN
     if (popup) popup->show();
 }
 
+void showConvertPicker(std::vector<ReplayInfo> replays, int levelId, std::string levelName, Config cfg) {
+    std::vector<ListPopup::Row> rows;
+    for (auto const& r : replays) {
+        ListPopup::Row row;
+        row.key = std::to_string(r.id);
+        row.title = fmt::format("{} - ZBF", r.author.empty() ? "Unknown" : r.author);
+        std::vector<std::string> parts;
+        if (r.bytes > 0) parts.push_back(formatBytes(r.bytes));
+        if (r.downloads > 0) parts.push_back(fmt::format("{} downloads", r.downloads));
+        parts.push_back(fs::path(r.filename).filename().string());
+        row.subtitle = joinParts(parts);
+        rows.push_back(std::move(row));
+    }
+
+    auto onAction = [replays, levelId, levelName, cfg](ListPopup* popup, std::string const& key) {
+        popup->close();
+        for (auto const& r : replays) {
+            if (std::to_string(r.id) == key) {
+                beginConvertDownload(r, levelId, levelName, cfg);
+                break;
+            }
+        }
+    };
+
+    auto popup = ListPopup::create(
+        "Convert a ZBF macro", std::move(rows), false, "No macros to show.", onAction, {}, "Convert"
+    );
+    if (popup) popup->show();
+}
+
 void runLookup(int levelId, std::string levelName) {
     if (g_busy) {
         Notification::create("A request is already in progress.", NotificationIcon::Warning)->show();
@@ -707,16 +944,50 @@ void runLookup(int levelId, std::string levelName) {
         for (auto const& r : result.replays) {
             if (matchesFilter(r, cfg.filter)) matches.push_back(r);
         }
+
         if (matches.empty()) {
-            FLAlertLayer::create(
-                "Macrodl",
-                fmt::format(
-                    "{} macro(s) found, but none match the format filter ({}). You can change the filter in the Macrodl settings.",
-                    result.replays.size(),
-                    cfg.filter
-                ),
-                "OK"
-            )->show();
+            std::vector<ReplayInfo> zbfReplays;
+            for (auto const& r : result.replays) {
+                if (formatOf(r) == "zbf") zbfReplays.push_back(r);
+            }
+
+            if (zbfReplays.empty()) {
+                FLAlertLayer::create(
+                    "Macrodl",
+                    fmt::format(
+                        "{} macro(s) found, but none match the format filter ({}), and none can be converted. "
+                        "You can change the filter in the Macrodl settings.",
+                        result.replays.size(),
+                        cfg.filter
+                    ),
+                    "OK"
+                )->show();
+                return;
+            }
+
+            std::stable_sort(zbfReplays.begin(), zbfReplays.end(), [](ReplayInfo const& a, ReplayInfo const& b) {
+                return a.downloads > b.downloads;
+            });
+
+            if (zbfReplays.size() == 1) {
+                auto const& r = zbfReplays[0];
+                createQuickPopup(
+                    "No GDR macro found",
+                    fmt::format(
+                        "This level has no GDR or GDR2 macro, but a ZBF macro by {} is available. "
+                        "Convert it to GDR2?",
+                        r.author.empty() ? "Unknown" : r.author
+                    ),
+                    "Cancel",
+                    "Convert",
+                    [r, levelId, levelName, cfg](auto, bool btn2) {
+                        if (btn2) beginConvertDownload(r, levelId, levelName, cfg);
+                    }
+                );
+                return;
+            }
+
+            showConvertPicker(std::move(zbfReplays), levelId, levelName, cfg);
             return;
         }
 
