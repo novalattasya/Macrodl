@@ -74,7 +74,6 @@ struct Config {
     bool confirm = false;
 };
 
-std::string g_inertiaVersion;
 bool g_busy = false;
 bool g_libraryLoaded = false;
 std::vector<LibraryEntry> g_library;
@@ -123,19 +122,6 @@ int64_t parseInt(std::string const& s) {
     int64_t value = 0;
     std::from_chars(s.data(), s.data() + s.size(), value);
     return value;
-}
-
-std::string extractVersion(std::string const& html) {
-    for (char const* marker : {"&quot;version&quot;:&quot;", "&#34;version&#34;:&#34;", "\"version\":\""}) {
-        size_t pos = 0;
-        while ((pos = html.find(marker, pos)) != std::string::npos) {
-            pos += std::strlen(marker);
-            size_t end = pos;
-            while (end < html.size() && std::isxdigit(static_cast<unsigned char>(html[end]))) end++;
-            if (end - pos == 32) return html.substr(pos, 32);
-        }
-    }
-    return "";
 }
 
 std::string formatOf(ReplayInfo const& r) {
@@ -427,81 +413,48 @@ std::optional<fs::path> resolveTarget(Config const& cfg, ReplayInfo const& r, in
 }
 
 arc::Future<FetchResult> fetchReplays(int levelId) {
-    std::string pageUrl = fmt::format("https://hyperbolus.net/level/{}/replays", levelId);
     FetchResult result;
-    int64_t lastPage = 1;
+    int page = 1;
+    int lastPage = 1;
 
-    for (int64_t page = 1; page <= lastPage && page <= static_cast<int64_t>(MAX_PAGES); ++page) {
-        std::string url = page == 1 ? pageUrl : fmt::format("{}?page={}", pageUrl, page);
-        bool done = false;
+    while (page <= lastPage && page <= static_cast<int>(MAX_PAGES)) {
+        auto url = fmt::format("https://hyperbolus.net/api/macros?level_id={}&page={}", levelId, page);
+        auto req = baseRequest();
+        auto res = co_await req.get(url);
 
-        for (int attempt = 0; attempt < 2 && !done; ++attempt) {
-            if (g_inertiaVersion.empty()) {
-                auto versionReq = baseRequest();
-                auto versionRes = co_await versionReq.get(pageUrl);
-                if (!versionRes.ok()) {
-                    result.error = fmt::format("Could not reach Hyperbolus (HTTP {}).", versionRes.code());
-                    co_return result;
-                }
-                g_inertiaVersion = extractVersion(versionRes.string().unwrapOr(""));
-                if (g_inertiaVersion.empty()) {
-                    result.error = "Could not read the Hyperbolus page. The site may have changed or blocked the request.";
-                    co_return result;
-                }
-            }
-
-            auto req = baseRequest();
-            req.header("Accept", "text/html, application/xhtml+xml");
-            req.header("X-Requested-With", "XMLHttpRequest");
-            req.header("X-Inertia", "true");
-            req.header("X-Inertia-Version", g_inertiaVersion);
-            req.header("Referer", pageUrl);
-            auto res = co_await req.get(url);
-
-            if (res.code() == 409) {
-                g_inertiaVersion.clear();
-                continue;
-            }
-            if (!res.ok()) {
-                result.error = fmt::format("Could not load the macro list (HTTP {}).", res.code());
-                co_return result;
-            }
-
-            auto parsed = res.json();
-            if (parsed.isErr()) {
-                result.error = "Hyperbolus returned an unreadable response.";
-                co_return result;
-            }
-            auto root = parsed.unwrap();
-            auto block = root["props"]["replays"];
-            lastPage = block["last_page"].asInt().unwrapOr(1);
-
-            auto arr = block["data"].asArray();
-            if (arr.isOk()) {
-                for (auto item : arr.unwrap()) {
-                    auto files = item["files"].asArray();
-                    if (files.isErr() || files.unwrap().empty()) continue;
-                    auto file = files.unwrap()[0];
-
-                    ReplayInfo r;
-                    r.id = item["id"].asInt().unwrapOr(0);
-                    r.fps = static_cast<int>(item["fps"].asInt().unwrapOr(0));
-                    r.format = item["format"].asString().unwrapOr("");
-                    r.author = item["author"]["name"].asString().unwrapOr("");
-                    r.url = file["url"].asString().unwrapOr("");
-                    r.filename = file["filename"].asString().unwrapOr("");
-                    r.bytes = file["bytes"].asInt().unwrapOr(0);
-                    r.downloads = file["downloads"].asInt().unwrapOr(0);
-                    if (!r.url.empty()) result.replays.push_back(std::move(r));
-                }
-            }
-            done = true;
-        }
-
-        if (!done) {
-            result.error = "The Hyperbolus page version did not match. Please try again.";
+        if (!res.ok()) {
+            result.error = fmt::format("Could not reach Hyperbolus (HTTP {}).", res.code());
             co_return result;
         }
+
+        auto parsed = res.json();
+        if (parsed.isErr()) {
+            result.error = "Hyperbolus returned an unreadable response.";
+            co_return result;
+        }
+        auto root = parsed.unwrap();
+        lastPage = static_cast<int>(root["last_page"].asInt().unwrapOr(1));
+
+        auto arr = root["data"].asArray();
+        if (arr.isOk()) {
+            for (auto item : arr.unwrap()) {
+                auto files = item["files"].asArray();
+                if (files.isErr() || files.unwrap().empty()) continue;
+                auto file = files.unwrap()[0];
+
+                ReplayInfo r;
+                r.id = item["id"].asInt().unwrapOr(0);
+                r.fps = static_cast<int>(item["fps"].asInt().unwrapOr(0));
+                r.format = item["format"].asString().unwrapOr("");
+                r.author = item["author"]["name"].asString().unwrapOr("");
+                r.url = file["url"].asString().unwrapOr("");
+                r.filename = file["filename"].asString().unwrapOr("");
+                r.bytes = file["bytes"].asInt().unwrapOr(0);
+                r.downloads = file["downloads"].asInt().unwrapOr(0);
+                if (!r.url.empty()) result.replays.push_back(std::move(r));
+            }
+        }
+        page++;
     }
 
     result.ok = true;

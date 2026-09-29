@@ -8,7 +8,7 @@
 	},
 	"id": "novalattasya.macrodl",
 	"name": "Macrodl",
-	"version": "v1.1.0",
+	"version": "v1.2.0",
 	"developer": "novalattasya",
 	"description": "Download Geometry Dash macros from Hyperbolus straight from the level page.",
 	"settings": {
