@@ -1,3 +1,11 @@
+# v1.2.0
+
+- Switched to Hyperbolus' official https://hyperbolus.net/api/macros endpoint, provided directly by the Hyperbolus developer. Requests are now simpler and no longer rely on scraping the replays page.
+
+# v1.1.0
+
+- Convert ZBF macros to GDR2 when a level has no GDR or GDR2 macro available.
+
 # v1.0.0
 
 - Download macros from Hyperbolus directly from the level page.
